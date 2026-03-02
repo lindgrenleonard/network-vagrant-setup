@@ -1,166 +1,147 @@
 # ACME Corp — Stockholm Site
 
-KTH networks course project. Multi-site corporate network built with LXD containers inside a Multipass VM on macOS.
+KTH networks course project. Multi-site corporate network built with Vagrant/VirtualBox VMs.
 
-Stockholm runs 4 containers (VM1, VM2, VM3, VM6). London (VM4, VM5) runs on a teammate's machine, connected via IPsec VPN.
+Stockholm runs 4 VMs (VM1, VM2, VM3, VM6). London (VM4, VM5) runs on a teammate's machine, connected via IPsec VPN.
 
 ## Network Topology
 
 ```
-                  Internet
-                     │
-              ┌──────┴──────┐
-              │   VM1-GW    │  192.168.100.10 (WAN)
-              │   Gateway   │
-              └──┬───┬───┬──┘
-                 │   │   │
-     ┌───────────┘   │   └───────────┐
-     │               │               │
-  VLAN 10         VLAN 20         VLAN 30
-  10.0.1.0/26     10.0.1.128/26   10.0.1.240/28
-  (Server/CA)     (Client/London) (DMZ)
-     │                                │
-  ┌──┴───┐                        ┌───┴───┐
-  │VM2   │  10.0.1.2              │VM6    │  10.0.1.242
-  │Server│  Nginx, BIND9,         │DMZ    │  Docker, Nginx,
-  │      │  Syncthing             │       │  Certbot
-  ├──────┤                        └───────┘
-  │VM3   │  10.0.1.3
-  │CA    │  FreeRADIUS, EasyRSA
-  │      │  (air-gapped)
-  └──────┘
+             Internet
+                │
+          ┌─────┴──────┐
+          │   VM1-GW   │  enp0s3: Vagrant NAT (internet)
+          │   Gateway   │  enp0s8: 10.0.1.1/26   (VLAN 10)
+          │            │  enp0s9: 10.0.1.129/26 (VLAN 20)
+          │            │  enp0s10: 10.0.1.241/28 (VLAN 30)
+          └──┬───┬──┬──┘
+             │   │  │
+    ┌────────┘   │  └────────┐
+    │            │           │
+ VLAN 10     VLAN 20     VLAN 30
+10.0.1.0/26  10.0.1.128/26  10.0.1.240/28
+(Server/CA)  (Client/London) (DMZ)
+    │                        │
+ ┌──┴───┐               ┌───┴───┐
+ │VM2   │ 10.0.1.2      │VM6    │ 10.0.1.242
+ │Server│ Nginx, BIND9,  │DMZ    │ Docker, Nginx,
+ │      │ Syncthing      │       │ Certbot
+ ├──────┤               └───────┘
+ │VM3   │ 10.0.1.3
+ │CA    │ FreeRADIUS, EasyRSA
+ │      │ (air-gapped)
+ └──────┘
 ```
 
 ## Prerequisites
 
-- macOS with [Multipass](https://multipass.run/) installed
-- ~16 GB RAM and ~50 GB disk available for the VM
+- macOS (or Linux/Windows with VirtualBox support)
+- [VirtualBox](https://www.virtualbox.org/) 7.x
+- [Vagrant](https://www.vagrantup.com/) 2.4+
+- ~16 GB RAM and ~50 GB disk available
 
 ```bash
-brew install multipass
+brew install --cask virtualbox vagrant
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Create the Multipass VM with all LXD containers, bridges, and networking
-bash setup-stockholm.sh
+# 1. Create and provision all VMs (~5 min)
+vagrant up
 
-# 2. Enter the VM
-multipass shell stockholm
+# 2. Apply firewall rules (from project directory)
+bash configure-ufw.sh
 
-# 3. Apply firewall rules (inside the VM)
-bash /path/to/configure-ufw.sh
-
-# 4. Verify firewall policies (inside the VM)
-bash /path/to/test-firewall.sh
+# 3. Verify firewall policies
+bash test-firewall.sh
 ```
 
 ## Scripts
 
-| Script               | Where to run        | Purpose                                                                   |
-| -------------------- | ------------------- | ------------------------------------------------------------------------- |
-| `setup-stockholm.sh` | macOS host          | Creates Multipass VM, LXD containers, bridges, netplan, installs packages |
-| `configure-ufw.sh`   | Inside Multipass VM | Applies UFW firewall rules to all VMs. Safe to re-run.                    |
-| `test-firewall.sh`   | Inside Multipass VM | Verifies firewall policies with connectivity tests                        |
-| `reset-ufw.sh`       | Inside Multipass VM | Strips all UFW rules and disables firewalls on all VMs                    |
+| Script | Run From | Purpose |
+|---|---|---|
+| `vagrant up` | Host (project dir) | Create and provision all VMs |
+| `configure-ufw.sh` | Host (project dir) | Apply UFW firewall rules to all VMs |
+| `test-firewall.sh` | Host (project dir) | Verify firewall policies with connectivity tests |
+| `reset-ufw.sh` | Host (project dir) | Disable all UFW rules on all VMs |
 
-All scripts inside the VM use `sg lxd -c` to ensure LXD group permissions.
+## VMs
 
-## Containers
+| VM | Hostname | VLAN | IP | Key Services |
+|---|---|---|---|---|
+| VM1 | vm1-gw | 10, 20, 30 | 10.0.1.1, .129, .241 | StrongSwan IPsec, Suricata IDS, Fail2ban, NAT |
+| VM2 | vm2-srv | 10 | 10.0.1.2 | Nginx, BIND9, Docker, Syncthing |
+| VM3 | vm3-ca | 10 | 10.0.1.3 | FreeRADIUS, Easy-RSA (air-gapped) |
+| VM6 | vm6-dmz | 30 | 10.0.1.242 | Docker, Nginx, Certbot |
 
-| Container | Role           | IP                                   | VLAN | Key Services                                  |
-| --------- | -------------- | ------------------------------------ | ---- | --------------------------------------------- |
-| `vm1-gw`  | Gateway/Router | 10.0.1.1, .129, .241, 192.168.100.10 | All  | iptables NAT, UFW routing, StrongSwan IPsec   |
-| `vm2-srv` | Server         | 10.0.1.2                             | 10   | Nginx, BIND9 DNS, Syncthing                   |
-| `vm3-ca`  | CA Server      | 10.0.1.3                             | 10   | FreeRADIUS, EasyRSA (air-gapped, no internet) |
-| `vm6-dmz` | DMZ            | 10.0.1.242                           | 30   | Docker, Nginx, Certbot                        |
-
-### Accessing containers
+## SSH Access
 
 ```bash
-# From inside the Multipass VM
-lxc exec vm1-gw  -- bash
-lxc exec vm2-srv -- bash
-lxc exec vm3-ca  -- bash
-lxc exec vm6-dmz -- bash
+vagrant ssh vm1-gw
+vagrant ssh vm2-srv
+vagrant ssh vm3-ca
+vagrant ssh vm6-dmz
 ```
+
+## Interface Mapping (VirtualBox)
+
+All VMs have a Vagrant NAT adapter (`enp0s3`) for management. VLAN interfaces:
+
+| VM | enp0s8 | enp0s9 | enp0s10 |
+|---|---|---|---|
+| VM1 | VLAN 10 (10.0.1.1) | VLAN 20 (10.0.1.129) | VLAN 30 (10.0.1.241) |
+| VM2 | VLAN 10 (10.0.1.2) | — | — |
+| VM3 | VLAN 10 (10.0.1.3) | — | — |
+| VM6 | VLAN 30 (10.0.1.242) | — | — |
 
 ## Firewall Policy Summary
 
 **VM1 (Gateway):**
-
-- Default deny incoming, allow outgoing, deny routed
-- NAT masquerade for 10.0.1.0/24 outbound on WAN
-- DMZ (VLAN 30) blocked from reaching Server VLAN and Client VLAN
-- VLAN 10, 20, 30 allowed outbound to internet
+- Default deny incoming/routed, allow outgoing
+- NAT masquerade for 10.0.1.0/24 outbound on enp0s3
+- DMZ blocked from Server and Client VLANs (deny before allow)
+- VLANs 10/20/30 allowed outbound to internet
 - Internet inbound to DMZ on ports 80/443 only
-- VLAN 20 (London clients) can reach VLAN 10 on ports 443, 8384, 53 only (not VM3)
-- ICMP echo-request forwarding disabled (pings controlled by route rules)
+- VLAN 20 → VLAN 10 restricted to ports 443, 8384, 53 (not VM3)
 
-**VM2 (Server):** deny incoming except SSH, HTTP/S, DNS, Syncthing
+**VM2 (Server):** deny incoming except SSH, HTTP/S, DNS, Syncthing (8384, 22000)
 
-**VM3 (CA):** deny incoming except SSH, RADIUS (1812-1813/udp). Air-gapped via netplan (no default route).
+**VM3 (CA):** deny incoming except SSH, RADIUS (1812-1813/udp). Air-gapped (no default route).
 
 **VM6 (DMZ):** deny incoming except SSH, HTTP/S
 
-## Snapshots
+## IPsec to London (Demo Day)
 
-```bash
-# Create a snapshot (VM must be stopped)
-multipass stop stockholm
-multipass snapshot stockholm --name <name>
-multipass start stockholm
+For the S2S tunnel between laptops on demo day, add a bridged adapter to VM1 in the Vagrantfile:
 
-# Restore a snapshot
-multipass stop stockholm
-multipass restore stockholm.<name>
-multipass start stockholm
-
-# List snapshots
-multipass info stockholm --snapshots
+```ruby
+gw.vm.network "public_network", bridge: "en0: Wi-Fi"
 ```
 
-Current snapshots:
+Then `vagrant reload vm1-gw` to apply. Update StrongSwan config with the new WAN IP.
 
-- `clean-ufw-baseline` — All containers running, UFW configured and tested, before any service configuration
-
-## Multipass VM Management
+## Vagrant Tips
 
 ```bash
-# Check VM status and resource usage
-multipass info stockholm
+vagrant status              # VM states
+vagrant halt                # Stop all VMs (preserves disk)
+vagrant up                  # Start stopped VMs
+vagrant provision vm2-srv   # Re-run provisioner on one VM
+vagrant destroy -f          # Delete everything
 
-# Resize resources (VM must be stopped)
-multipass stop stockholm
-multipass set local.stockholm.cpus=8
-multipass set local.stockholm.memory=16G
-multipass set local.stockholm.disk=50G
-multipass start stockholm
+# Snapshots
+vagrant snapshot save vm1-gw clean-baseline
+vagrant snapshot restore vm1-gw clean-baseline
+vagrant snapshot list
 ```
-
-## Teardown (Nuclear Option)
-
-Delete everything when the project is done. Run from macOS host:
-
-```bash
-# 1. Delete the Multipass VM and all its snapshots
-multipass delete stockholm
-multipass purge
-
-# 2. (Optional) Uninstall Multipass entirely
-brew uninstall multipass
-
-# 3. Clean up Multipass residual data
-sudo rm -rf /var/root/Library/Application\ Support/multipassd
-rm -rf ~/Library/Application\ Support/multipass
-rm -rf ~/Library/Caches/multipass
-```
-
-After this, nothing from the project remains on the system.
 
 ## Known Issues
 
-**UFW FORWARD chain bug in LXD:** `ufw enable` inside LXD privileged containers doesn't populate the iptables FORWARD chain with jumps to UFW sub-chains. `configure-ufw.sh` handles this automatically with `fix_lxd_forward_chain()`. If you manually enable UFW inside a container, you may need to re-run `configure-ufw.sh`.
+**Air-gap uses DHCP override:** VM3's air-gap is implemented by disabling DHCP-provided routes on enp0s3 (`dhcp4-overrides: use-routes: false`). The Vagrant NAT interface stays up for `vagrant ssh` but has no default route. To temporarily restore internet on VM3 for package installs:
 
-**UFW must be re-applied after VM reboot:** The LXD FORWARD chain fix is not persistent across Multipass VM restarts. After `multipass stop/start`, re-run `configure-ufw.sh` inside the VM.
+```bash
+vagrant ssh vm3-ca -c "sudo ip route add default via 10.0.2.2 dev enp0s3"
+# ... install packages ...
+vagrant ssh vm3-ca -c "sudo ip route del default via 10.0.2.2 dev enp0s3"
+```
