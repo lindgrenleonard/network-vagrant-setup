@@ -290,6 +290,7 @@ sg lxd -c 'lxc exec vm2-srv -- bash -c "
     DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
         iptables iproute2 iputils-ping net-tools tcpdump curl \
         nginx bind9 bind9utils \
+        docker.io python3-pip python3-venv \
         > /var/log/bootstrap.log 2>&1
 "' &
 PID2=$!
