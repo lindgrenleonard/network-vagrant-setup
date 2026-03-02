@@ -14,8 +14,8 @@ check_ping() {
 
     printf "  %-55s" "$description"
     
-    # Run ping with 1 packet (-c 1) and a 1-second timeout (-W 1)
-    if lxc exec "$from_vm" -- ping -c 1 -W 1 "$target_ip" > /dev/null 2>&1; then
+    # Run ping with 1 packet (-c 1) and a 2-second timeout (-W 2)
+    if sg lxd -c "lxc exec $from_vm -- ping -c 1 -W 2 $target_ip" > /dev/null 2>&1; then
         if [ "$expected" = "SUCCESS" ]; then
             echo "✅ PASS"
         else
