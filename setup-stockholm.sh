@@ -14,9 +14,9 @@
 set -euo pipefail
 
 VMNAME="stockholm"
-CPUS=4
-MEM="5G"
-DISK="25G"
+CPUS=8
+MEM="16G"
+DISK="50G"
 BOOTSTRAP="/tmp/acme-bootstrap.sh"
 
 # ─────────────────────────────────────────────
