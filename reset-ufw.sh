@@ -1,25 +1,31 @@
 #!/bin/bash
-# reset-ufw.sh - Resets UFW on all VMs to a clean disabled state.
-# Run this inside the Multipass VM, then run test-firewall.sh to verify failures.
+# =============================================================================
+# Reset UFW on all ACME Stockholm VMs (Vagrant/VirtualBox)
+# =============================================================================
+# Run from the project directory (where Vagrantfile lives):
+#   bash reset-ufw.sh
+# =============================================================================
 set -euo pipefail
 
 echo "====================================================="
 echo " Resetting UFW on all ACME Stockholm VMs"
 echo "====================================================="
 
-run_lxd() {
-    sg lxd -c "$1"
+run_on() {
+    local vm="$1"
+    shift
+    vagrant ssh "$vm" -c "sudo $*"
 }
 
 for vm in vm1-gw vm2-srv vm3-ca vm6-dmz; do
     echo ">>> Resetting $vm..."
-    run_lxd "lxc exec $vm -- ufw --force reset"
-    run_lxd "lxc exec $vm -- ufw --force disable"
+    run_on "$vm" "ufw --force reset"
+    run_on "$vm" "ufw --force disable"
 done
 
-# Flush iptables FORWARD chain on gateway so no stale rules remain
-run_lxd 'lxc exec vm1-gw -- iptables -F FORWARD'
-run_lxd 'lxc exec vm1-gw -- iptables -P FORWARD ACCEPT'
+# Flush iptables FORWARD chain on gateway
+run_on vm1-gw "iptables -F FORWARD"
+run_on vm1-gw "iptables -P FORWARD ACCEPT"
 
 echo "====================================================="
 echo " All UFW rules reset. Firewalls are disabled."
